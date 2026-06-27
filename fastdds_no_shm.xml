@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Perfil FastDDS que DESLIGA o transporte de memoria partilhada (SHM) e usa
+  apenas UDPv4 com buffers grandes. Corrige o erro
+  "sequence size exceeds remaining buffer" no Webots + ROS2, causado por
+  corrupcao no transporte SHM do FastDDS.
+
+  IMPORTANTE: usar APENAS com
+    export FASTRTPS_DEFAULT_PROFILES_FILE=/home/nuno/Documents/ArgusAI/fastdds_no_shm.xml
+  NAO definir RMW_FASTRTPS_USE_QOS_FROM_XML (estraga a pre-alocacao de buffers).
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+    <profiles>
+        <transport_descriptors>
+            <transport_descriptor>
+                <transport_id>udp_transport</transport_id>
+                <type>UDPv4</type>
+                <maxMessageSize>65500</maxMessageSize>
+                <sendBufferSize>1048576</sendBufferSize>
+                <receiveBufferSize>4194304</receiveBufferSize>
+            </transport_descriptor>
+        </transport_descriptors>
+
+        <participant profile_name="no_shm_participant" is_default_profile="true">
+            <rtps>
+                <userTransports>
+                    <transport_id>udp_transport</transport_id>
+                </userTransports>
+                <useBuiltinTransports>false</useBuiltinTransports>
+            </rtps>
+        </participant>
+    </profiles>
+</dds>

@@ -1,0 +1,64 @@
+========================================================
+ NOTAS IMPORTANTES (ler antes de comecar)
+========================================================
+# 1) ERRO "sequence size exceeds remaining buffer": e RUIDO COSMETICO do FastDDS
+#    que aparece nos comandos CLI (ros2 topic echo/hz). NAO parte o mapeamento
+#    (o mapa constroi-se na mesma). NAO usar o perfil no-SHM: testamos e causa
+#    flood de "jump back in time" que CRASHA o slam_toolbox.
+#    (Solucao limpa, opcional: instalar CycloneDDS - precisa sudo+internet.)
+#
+# 2) DRIFT / paredes tortas: era da ODOMETRIA. Calibrado em ros2_control.yml
+#    (wheel_separation_multiplier 1.089 -> 0.987). Drift agora ~0.4%.
+#
+# 3) Conduzir: o topico e /cmd_vel normal (teleop simples).
+#
+# 4) Se o slam_toolbox morrer, e quase sempre por processos antigos pendurados.
+#    Limpa com:  pkill -9 -f "webots|slam_toolbox|rviz2|ros2_supervisor"
+#    e relanca (limpeza e launch em comandos SEPARADOS).
+
+========================================================
+ FASE 1: MAPEAMENTO (cria o mapa com SLAM Toolbox)
+========================================================
+
+# Comando único — inclui relay + TF corretos + SLAM + RViz
+ros2 launch /home/nuno/Documents/ArgusAI/argus_mapping_launch.py
+
+# Teleop para explorar o ambiente e construir o mapa (terminal separado):
+ros2 run teleop_twist_keyboard teleop_twist_keyboard
+
+# Depois de explorar, GUARDAR o mapa (terminal separado):
+# (o save_map_timeout e obrigatorio, senao falha)
+ros2 run nav2_map_server map_saver_cli -f /home/nuno/Documents/ArgusAI/map --ros-args -p save_map_timeout:=20.0
+
+========================================================
+ FASE 2: NAVEGAÇÃO AUTÓNOMA (usa o mapa guardado)
+========================================================
+
+# Inicia simulação + Nav2 com o mapa existente
+ros2 launch /home/nuno/Documents/ArgusAI/argus_nav_launch.py
+
+# No RViz: usa "2D Pose Estimate" para definir a posição inicial do robot.
+# Depois executa a missão de inspeção ao carro:
+python3 /home/nuno/Documents/ArgusAI/navegacao.py
+
+========================================================
+ DIAGNÓSTICO (se algo não funcionar)
+========================================================
+
+# Ver árvore TF — confirma que base_link → Hokuyo_URG_04LX_UG01 existe:
+ros2 run tf2_tools view_frames
+
+# Ver se /scan tem dados:
+ros2 topic hz /scan
+
+# Ver frame_id das mensagens do lidar:
+ros2 topic echo /Tiago_Lite/Hokuyo_URG_04LX_UG01 --once 2>&1 | grep frame_id
+
+# Ver todos os tópicos disponíveis (confirma nomes de câmara, etc.):
+ros2 topic list | grep -E "scan|image|Hokuyo"
+
+========================================================
+ ANTIGO (NÃO USAR — tinha bugs de TF e race condition)
+========================================================
+# ros2 launch webots_ros2_tiago robot_launch.py world:=/home/nuno/Documents/ArgusAI/meu_mapa_tiago.wbt rviz:=true slam_toolbox:=true
+# ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 "Hokuyo URG-04LX-UG01" Hokuyo_URG_04LX_UG01 & ros2 run topic_tools relay /Tiago_Lite/Hokuyo_URG_04LX_UG01 /scan

@@ -1,0 +1,6 @@
+# Python
+__pycache__/
+*.pyc
+
+# ficheiro vazio acidental
+0

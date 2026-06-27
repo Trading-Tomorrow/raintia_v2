@@ -1,0 +1,77 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/develop/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/vehicles/protos/bmw/BmwX5.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/obstacles/protos/OilBarrel.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/panels/protos/Panel.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/pal_robotics/tiago_lite/protos/TiagoLite.proto"
+
+WorldInfo {
+  info [
+    "An office break room, surrounded by office desks."
+  ]
+  FPS 20
+}
+Viewpoint {
+  fieldOfView 0.5
+  orientation -0.38847514828786506 0.017581612925674395 0.9212914555392626 3.0523626164433
+  position 28.408991036942346 -8.551159849018887 28.840076305490328
+  near 1
+  follow "TIAGo Iron"
+  followType "None"
+  followSmoothness 0
+}
+TexturedBackground {
+  texture "entrance_hall"
+  luminosity 0.5
+  skybox FALSE
+}
+OilBarrel {
+  translation 2.51555 -10.9909 0.44
+  name "oil barrel(10)"
+}
+OilBarrel {
+  translation -3.65935 -11.4852 0.44
+  name "oil barrel(11)"
+}
+OilBarrel {
+  translation -4.77367 -8.30904 0.44
+  name "oil barrel(2)"
+}
+OilBarrel {
+  translation 1.7502 -11.5527 0.44
+  name "oil barrel(13)"
+}
+Panel {
+  translation -3.8967 -11.9751 -6.03962e-14
+  name "panel(1)"
+}
+OilBarrel {
+  translation 3.02091 -11.5588 0.44
+  name "oil barrel(17)"
+}
+OilBarrel {
+  translation 2.26214 -11.5864 0.44
+  name "oil barrel(1)"
+}
+OilBarrel {
+  translation 2.11645 -10.9655 0.44
+  name "oil barrel(21)"
+}
+BmwX5 {
+  translation -1.22134 -4.92797 0.0571603
+  rotation 2.127366774752564e-06 -0.999999999997737 1.0135046151412447e-08 0.015998531572250556
+  controller "<none>"
+}
+RectangleArena {
+  translation -0.142659 -5.44274 0
+  floorSize 12 13
+  wallHeight 1
+}
+TiagoLite {
+  translation -5.54898 -11.593 0.0936635
+  rotation -0.0006335008496418834 -0.00014686125367303988 0.9999997885542005 0.3556082430462762
+  name "Tiago_Lite"
+  controller "<extern>"
+}
