@@ -64,6 +64,42 @@ BmwX5 {
   rotation 2.127366774752564e-06 -0.999999999997737 1.0135046151412447e-08 0.015998531572250556
   controller "<none>"
 }
+Solid {
+  translation 0.3 -5.92 1.05
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [ "dano_vidro.png" ]
+        }
+        roughness 0.5
+        metalness 0
+      }
+      geometry Box {
+        size 0.45 0.02 0.3
+      }
+    }
+  ]
+  name "dano_vidro"
+}
+Solid {
+  translation 0.3 -5.92 0.7
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [ "dano_risco.png" ]
+        }
+        roughness 0.35
+        metalness 0.2
+      }
+      geometry Box {
+        size 0.6 0.02 0.22
+      }
+    }
+  ]
+  name "dano_risco"
+}
 RectangleArena {
   translation -0.142659 -5.44274 0
   floorSize 12 13

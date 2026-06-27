@@ -7,3 +7,9 @@ __pycache__/
 
 # Sketch ESP32 contem credenciais WiFi - nao commitar como esta
 esp32_botao_emergencia/
+
+# lixo de debug
+frames_*.gv
+frames_*.pdf
+captura_dir.jpg
+exempo_carro_dir.png

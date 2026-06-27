@@ -6,10 +6,14 @@ from geometry_msgs.msg import Twist, PoseStamped
 from sensor_msgs.msg import Image
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 from cv_bridge import CvBridge
+from tf2_ros import Buffer, TransformListener
 import cv2
 import time
 import math
 import os
+
+# Centro do carro no frame do mapa (detetado por detetar_pontos.py)
+CARRO_CENTRO = (6.63, 4.68)
 try:
     import paho.mqtt.client as mqtt
 except ImportError:
@@ -31,18 +35,23 @@ class MissaoArgus(Node):
         # carro que minimiza a distancia total (~28m vs ~41m da ordem ingenua) e
         # acaba no ponto mais perto da base (regresso curto).
         # Formato: (X, Y, Theta, nome).
+        # Laterais (dir/esq) mais afastados (~3.2m) para apanhar o perfil completo;
+        # frente/tras a ~3.5m. A camara e depois apontada ao centro do carro.
         self.pontos_inspecao = [
-            (6.77,  2.11,  1.623, 'dir'),     # lado direito
+            (6.79,  1.48,  1.623, 'dir'),     # lado direito (perfil)
             (10.17, 4.86, -3.089, 'frente'),  # frente
-            (6.50,  7.24, -1.518, 'esq'),     # lado esquerdo
+            (6.47,  7.88, -1.518, 'esq'),     # lado esquerdo (perfil)
             (3.10,  4.49,  0.053, 'tras'),    # tras (mais perto da base)
         ]
-        self.TIMEOUT_PONTO = 35.0   # segundos max por objetivo antes de cancelar
+        self.TIMEOUT_PONTO = 55.0   # segundos max por objetivo antes de cancelar
 
         # --- INICIALIZAÇÃO ROS 2 ---
         self.bridge = CvBridge()
         self.navigator = BasicNavigator()
         self.pub_cmd_vel = self.create_publisher(Twist, '/cmd_vel', 10)
+        # TF para saber a pose do robot e apontar a camara ao carro
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
         
         # Topico real da camara RGB do Tiago Lite (confirmado: ros2 topic list | grep image)
         self.sub_camera = self.create_subscription(Image, '/Tiago_Lite/Astra_rgb/image_color', self.camera_callback, 10)
@@ -85,6 +94,66 @@ class MissaoArgus(Node):
         # Envia velocidade ZERO para parar imediatamente
         cmd = Twist()
         self.pub_cmd_vel.publish(cmd)
+
+    def pose_robot(self):
+        """Pose atual do robot no frame do mapa (x, y, yaw) via TF; None se falhar."""
+        try:
+            t = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
+            x = t.transform.translation.x
+            y = t.transform.translation.y
+            q = t.transform.rotation
+            yaw = math.atan2(2*(q.w*q.z + q.x*q.y), 1-2*(q.y*q.y + q.z*q.z))
+            return x, y, yaw
+        except Exception:
+            return None
+
+    def girar_para_carro(self):
+        """Roda no sitio ate a camara apontar ao centro do carro (independente de
+        onde o Nav2 parou) -> garante o carro centrado na foto."""
+        cx, cy = CARRO_CENTRO
+        for _ in range(250):
+            rclpy.spin_once(self, timeout_sec=0.05)
+            p = self.pose_robot()
+            if p is None:
+                continue
+            x, y, yaw = p
+            desejado = math.atan2(cy - y, cx - x)
+            err = math.atan2(math.sin(desejado - yaw), math.cos(desejado - yaw))
+            if abs(err) < 0.04:
+                break
+            cmd = Twist()
+            cmd.angular.z = max(-0.5, min(0.5, 1.2 * err))
+            self.pub_cmd_vel.publish(cmd)
+        self.travar_robo()
+
+    def centrar_carro_visual(self):
+        """Centra o carro (vermelho) na imagem por servoing visual - robusto a
+        erros de localizacao. Se nao ver o carro, roda a procurar."""
+        for _ in range(220):
+            self.imagem_atual = None
+            t = time.time()
+            while self.imagem_atual is None and time.time() - t < 2.0:
+                rclpy.spin_once(self, timeout_sec=0.1)
+            if self.imagem_atual is None:
+                break
+            img = self.imagem_atual
+            W = img.shape[1]
+            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+            mask = cv2.inRange(hsv, (0, 70, 30), (14, 255, 255)) | \
+                   cv2.inRange(hsv, (166, 70, 30), (180, 255, 255))
+            mo = cv2.moments(mask)
+            cmd = Twist()
+            if mo['m00'] < 800:                 # carro nao visivel -> procurar
+                cmd.angular.z = 0.30
+            else:
+                cx = mo['m10'] / mo['m00']
+                err = cx - W / 2.0
+                if abs(err) < 20:               # centrado
+                    break
+                cmd.angular.z = max(-0.4, min(0.4, -0.0022 * err))
+            self.pub_cmd_vel.publish(cmd)
+            time.sleep(0.05)
+        self.travar_robo()
 
     def enviar_simagia(self):
         """No fim da missao, envia as fotos capturadas para o SIMAGIA.
@@ -143,6 +212,13 @@ class MissaoArgus(Node):
         self.get_logger().info('A aguardar o sistema de navegação (Nav2)...')
         self.navigator.waitUntilNav2Active()
 
+        # Aquecer a camara (lazy publisher do Webots) ate chegar o 1o frame
+        self.get_logger().info('A aquecer a camara...')
+        t_warm = time.time()
+        while self.imagem_atual is None and time.time() - t_warm < 10.0:
+            rclpy.spin_once(self, timeout_sec=0.1)
+        self.get_logger().info('Camara pronta.' if self.imagem_atual is not None else 'Camara sem frame (continuo).')
+
         # Guarda a posição inicial onde o robô ligou
         pose_inicial = self.criar_pose(0.0, 0.0, 0.0)
 
@@ -174,10 +250,15 @@ class MissaoArgus(Node):
             # 3. Chegou ao ponto (ou parou perto)? Tira Foto na mesma.
             resultado = self.navigator.getResult()
             if resultado == TaskResult.SUCCEEDED or timed_out:
-                self.get_logger().info(f'🎯 Ponto {index + 1} ({nome}). A estabilizar e capturar...')
-                # spin uns instantes para garantir um frame fresco da camara
-                for _ in range(15):
-                    rclpy.spin_once(self, timeout_sec=0.2)
+                self.get_logger().info(f'🎯 Ponto {index + 1} ({nome}). A apontar ao carro e capturar...')
+                # rodar no sitio para a camara ficar centrada no carro
+                self.girar_para_carro()          # aponta pela pose (aproximado)
+                self.centrar_carro_visual()      # afina pela imagem (robusto)
+                # esperar por um frame FRESCO da camara (lazy publisher do Webots)
+                self.imagem_atual = None
+                t_img = time.time()
+                while self.imagem_atual is None and time.time() - t_img < 8.0:
+                    rclpy.spin_once(self, timeout_sec=0.1)
 
                 if self.imagem_atual is not None:
                     nome_ficheiro = f'foto_carro_{nome}.jpg'
