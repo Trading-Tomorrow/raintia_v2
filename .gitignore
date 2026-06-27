@@ -4,3 +4,6 @@ __pycache__/
 
 # ficheiro vazio acidental
 0
+
+# Sketch ESP32 contem credenciais WiFi - nao commitar como esta
+esp32_botao_emergencia/

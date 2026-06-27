@@ -32,11 +32,33 @@ No RViz vais ver: mapa, costmaps, caminho global (verde), caminho local
 (azul), partículas do AMCL (laranja) e o rasto do robot (amarelo).
 
 ### Terminal 2 — Executar a missão (quando o Nav2 estiver ativo)
+O `SIMAGIA_CLAIM_ID` é **obrigatório** (o case/claim é criado antes da missão):
 ```bash
+export SIMAGIA_CLAIM_ID="CASO-123"            # obrigatorio
+export SIMAGIA_BASE_URL="http://127.0.0.1:8000"   # opcional (default)
 python3 /home/nuno/Documents/ArgusAI/navegacao.py
 ```
-O robô vai dar a volta ao carro pela ordem otimizada
-(`dir → frente → esq → trás`), tirar 4 fotos, e regressar à base.
+Ou por CLI: `python3 navegacao.py --simagia-claim-id CASO-123`.
+
+O robô dá a volta ao carro pela ordem otimizada (`dir → frente → esq → trás`),
+tira 4 fotos, regressa à base e **envia as fotos para o SIMAGIA** (POST).
+
+#### Upload para o SIMAGIA (fim da missão)
+- **Endpoint:** `POST {SIMAGIA_BASE_URL}/claims/{SIMAGIA_CLAIM_ID}/robot-inspection`
+- **Envia (multipart):** campos `mission_id`, `robot_id`, `inspection_points_json`
+  + as imagens no campo de ficheiro repetido **`files`**.
+- **Variáveis/CLI:**
+  | Var ambiente | CLI | Default |
+  |---|---|---|
+  | `SIMAGIA_BASE_URL` | `--simagia-base-url` | `http://127.0.0.1:8000` |
+  | `SIMAGIA_CLAIM_ID` | `--simagia-claim-id` | **obrigatório** |
+  | `ARGUS_ROBOT_ID` | `--robot-id` | `argus-tiago-lite` |
+  | `ARGUS_MISSION_ID` | `--mission-id` | gerado (`argus-<id>`) |
+- **Sem `SIMAGIA_CLAIM_ID`** → erro claro e termina **antes** de mexer no robot.
+- **Se o upload falhar** → as fotos **não** são apagadas e é escrito um
+  `simagia_retry_<mission_id>.json` (manifest para re-enviar mais tarde).
+- Lógica de upload isolada em `simagia_client.py` (testável):
+  `python3 -m unittest test_simagia_client.py -v`
 
 ### Fotos
 Guardadas em `/home/nuno/Documents/ArgusAI/`:
@@ -102,7 +124,9 @@ ros2 daemon stop && ros2 daemon start
 |---|---|
 | `argus_mapping_launch.py` | Launch do mapeamento (SLAM) |
 | `argus_nav_launch.py` | Launch da navegação (Nav2) |
-| `navegacao.py` | Missão: 4 pontos + fotos + regresso |
+| `navegacao.py` | Missão: 4 pontos + fotos + regresso + upload SIMAGIA |
+| `simagia_client.py` | Lógica de upload para o SIMAGIA (testável, sem ROS) |
+| `test_simagia_client.py` | Testes unitários do `simagia_client` |
 | `ros2_control.yml` | Odometria calibrada (rodas) |
 | `slam_toolbox_params.yaml` | Parâmetros do SLAM |
 | `nav2_params.yaml` | Parâmetros do Nav2 (A*, tolerâncias, inflação) |

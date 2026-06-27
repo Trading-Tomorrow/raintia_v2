@@ -9,15 +9,22 @@ from cv_bridge import CvBridge
 import cv2
 import time
 import math
+import os
 try:
     import paho.mqtt.client as mqtt
 except ImportError:
     mqtt = None   # MQTT opcional: se nao estiver instalado, a missao corre sem paragem remota
+import simagia_client   # upload das fotos para o SIMAGIA (modulo proprio, testavel)
 
 class MissaoArgus(Node):
-    def __init__(self):
+    def __init__(self, simagia_cfg):
         super().__init__('missao_argus')
-        
+
+        # config do SIMAGIA (base_url, case_id, robot_id, mission_id) resolvida no main
+        self.simagia = simagia_cfg
+        # caminhos+metadados das fotos efetivamente capturadas durante a missao
+        self.fotos_capturadas = []
+
         # --- CONFIGURAÇÕES DOS DESTINOS (O CARRO) ---
         # Coordenadas no FRAME DO MAPA. Carro detetado em (6.63, 4.68).
         # ORDEM otimizada pelo caixeiro-viajante (tsp_astar.py): anel a volta do
@@ -31,7 +38,7 @@ class MissaoArgus(Node):
             (3.10,  4.49,  0.053, 'tras'),    # tras (mais perto da base)
         ]
         self.TIMEOUT_PONTO = 35.0   # segundos max por objetivo antes de cancelar
-        
+
         # --- INICIALIZAÇÃO ROS 2 ---
         self.bridge = CvBridge()
         self.navigator = BasicNavigator()
@@ -78,6 +85,40 @@ class MissaoArgus(Node):
         # Envia velocidade ZERO para parar imediatamente
         cmd = Twist()
         self.pub_cmd_vel.publish(cmd)
+
+    def enviar_simagia(self):
+        """No fim da missao, envia as fotos capturadas para o SIMAGIA.
+        Em caso de falha (rede ou HTTP>=400) NAO apaga fotos e escreve um
+        retry manifest ao lado delas. Nao-fatal para a missao."""
+        cfg = self.simagia
+        paths = [p['photo'] for p in self.fotos_capturadas if os.path.exists(p['photo'])]
+        if not paths:
+            self.get_logger().warn('Sem fotos capturadas - nada para enviar ao SIMAGIA.')
+            return
+
+        self.get_logger().info(
+            f"A enviar {len(paths)} fotos para o SIMAGIA "
+            f"(case={cfg['case_id']}, mission={cfg['mission_id']})...")
+        try:
+            resp = simagia_client.upload_robot_inspection(
+                cfg['base_url'], cfg['case_id'], cfg['mission_id'], cfg['robot_id'],
+                paths, inspection_points=self.fotos_capturadas)
+            if 200 <= resp.status_code < 300:
+                self.get_logger().info(
+                    f"SIMAGIA OK (HTTP {resp.status_code}): {resp.text[:300]}")
+                return
+            # status de erro -> tratar como falha
+            raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:300]}")
+        except Exception as e:
+            self.get_logger().error(f'Falha no upload para o SIMAGIA: {e}')
+            try:
+                manifest = simagia_client.write_retry_manifest(
+                    '.', cfg['base_url'], cfg['case_id'], cfg['mission_id'],
+                    cfg['robot_id'], paths, self.fotos_capturadas, e)
+                self.get_logger().warn(
+                    f'Retry manifest escrito em {manifest} (fotos preservadas).')
+            except Exception as e2:
+                self.get_logger().error(f'Falha tambem a escrever o manifest: {e2}')
 
     def camera_callback(self, msg):
         # Guarda a imagem mais recente sempre na memória
@@ -142,6 +183,11 @@ class MissaoArgus(Node):
                     nome_ficheiro = f'foto_carro_{nome}.jpg'
                     cv2.imwrite(nome_ficheiro, self.imagem_atual)
                     self.get_logger().info(f'📸 Fotografia guardada: {nome_ficheiro}')
+                    # registar a foto capturada (caminho + ponto) para o upload SIMAGIA
+                    self.fotos_capturadas.append({
+                        'name': nome, 'x': px, 'y': py, 'theta': ptheta,
+                        'photo': nome_ficheiro,
+                    })
                 else:
                     self.get_logger().warn('Não há imagem da câmara disponível no momento!')
             else:
@@ -169,12 +215,33 @@ class MissaoArgus(Node):
             self.get_logger().info('✅ Missão terminada (parado perto do ponto inicial).')
         # parar o robot de vez
         self.travar_robo()
+        # enviar as fotos capturadas para o SIMAGIA
+        self.enviar_simagia()
 
 
 def main(args=None):
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description='Missao de inspecao ArgusAI + upload SIMAGIA')
+    parser.add_argument('--simagia-base-url', dest='simagia_base_url')
+    parser.add_argument('--simagia-claim-id', dest='simagia_claim_id')
+    parser.add_argument('--robot-id', dest='robot_id')
+    parser.add_argument('--mission-id', dest='mission_id')
+    cli, _ = parser.parse_known_args()   # ignora os args do ROS (--ros-args ...)
+
+    # resolver config do SIMAGIA ANTES de mexer no robot (fail-fast e mensagem clara)
+    try:
+        simagia_cfg = simagia_client.resolve_config(cli=vars(cli))
+    except simagia_client.ConfigError as e:
+        print(f"[ERRO SIMAGIA] {e}", file=sys.stderr)
+        sys.exit(2)
+    print(f"[SIMAGIA] base_url={simagia_cfg['base_url']} case_id={simagia_cfg['case_id']} "
+          f"robot_id={simagia_cfg['robot_id']} mission_id={simagia_cfg['mission_id']}")
+
     rclpy.init(args=args)
-    missao = MissaoArgus()
-    
+    missao = MissaoArgus(simagia_cfg)
+
     try:
         # Inicia a missão em background e mantem os callbacks (câmara) a correr
         missao.executar_missao()
